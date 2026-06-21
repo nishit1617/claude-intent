@@ -28,7 +28,9 @@ No new command, no extra step. You keep using `claude` the same way you always h
 
 ## Why I built this
 
-I kept noticing the same pattern: type something half-finished like "fix the button" or "not working," and Claude either asks a clarifying question or just guesses and goes the wrong direction. Either way you lose time. Most of the time I knew exactly what I meant, I just didn't type it out properly. This hook does that typing-out-properly part for me.
+I kept typing prompts that made sense in my head but not enough to Claude Code. It would read the wrong file, or start exploring the whole codebase for something simple, when a clearer prompt up front would have pointed it straight there.
+
+This applies to follow up messages too. Claude Code already keeps conversation context fine on its own, but the follow up message itself, something like "still not working," is still vague text. The hook detects it's a follow up and refines it the same way it refines a fresh prompt, using the previous instruction as extra context.
 
 ---
 
