@@ -1,0 +1,18 @@
+{
+  "name": "claude-intent",
+  "version": "1.0.0",
+  "description": "Developer intent engine — translates vague prompts into precise instructions for Claude Code",
+  "bin": {
+    "claude-intent": "./bin/claude-intent.js"
+  },
+  "scripts": {
+    "start": "node bin/claude-intent.js"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
