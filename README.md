@@ -1,130 +1,172 @@
 # claude-intent
 
-**Developer Intent Engine for Claude Code**
-
-Translates vague, lazy, or non-English prompts into precise coding instructions — silently, before Claude Code sees them.
+A hook for Claude Code that cleans up your prompts before Claude sees them. You type something rough, it fixes the ambiguity and sends a clearer version instead.
 
 ---
 
-## The problem it solves
+## Example
 
 ```
-You type:   "batch mein issue hai"
-Claude gets: "In BatchModal.vue, disable the submit button when 
-              quantity === 0. Do not modify any other files."
+You type:    "make the list look better"
+Claude gets: "Improve the visual layout of the list component.
+             Review spacing, typography, and visual hierarchy
+             between the existing fields, and align it with
+             other list components already used in the project."
 ```
 
-Works with:
-- Hinglish / Hindi input
-- Gujarati + English mixed
-- Broken English
-- Lazy short prompts ("add button", "fix it")
-- Vague intent ("make it better")
-- Any language
+```
+You type:    "save doesn't work right"
+Claude gets: "The save action appears to complete without error,
+             but the data may not be saved correctly. Trace the
+             save flow from the form submission through to the
+             backend and confirm where it is failing."
+```
+
+No new command, no extra step. You keep using `claude` the same way you always have.
+
+---
+
+## Why I built this
+
+I kept noticing the same pattern: type something half-finished like "fix the button" or "not working," and Claude either asks a clarifying question or just guesses and goes the wrong direction. Either way you lose time. Most of the time I knew exactly what I meant, I just didn't type it out properly. This hook does that typing-out-properly part for me.
+
+---
+
+## Requirements
+
+- Node.js 18+
+- Claude Code CLI already set up
+- An API key from one provider (free options below)
 
 ---
 
 ## Install
 
-**Windows (PowerShell):**
+**Ubuntu / Linux**
+```bash
+git clone https://github.com/YOUR-USERNAME/claude-intent.git
+cd claude-intent
+chmod +x install.sh
+./install.sh
+```
+
+No Node? Quick install:
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+```
+
+**macOS**
+```bash
+git clone https://github.com/YOUR-USERNAME/claude-intent.git
+cd claude-intent
+chmod +x install.sh
+./install.sh
+```
+
+**Windows (PowerShell)**
 ```powershell
-powershell -ExecutionPolicy Bypass -File install.ps1
-```
-
-**Windows (simple):**
-```bat
-install.bat
-```
-
-**Mac / Linux:**
-```bash
-chmod +x install.sh && ./install.sh
-```
-
-**All platforms (npm directly):**
-```bash
+git clone https://github.com/YOUR-USERNAME/claude-intent.git
+cd claude-intent
 npm install -g .
 ```
 
-Then run setup:
+---
+
+## Setup
+
+You'll need a key from at least one provider. Groq is free and fast, that's what I use day to day.
+
+```
+console.groq.com -> API Keys -> Create API key
+```
+
+Save it:
+```bash
+echo 'export GROQ_API_KEY="your-key-here"' >> ~/.bashrc
+source ~/.bashrc
+```
+```powershell
+[System.Environment]::SetEnvironmentVariable("GROQ_API_KEY", "your-key-here", "User")
+```
+
+Then:
 ```bash
 claude-intent setup
 ```
 
-Setup will:
-1. Detect available models on your system (Ollama, API keys)
-2. Let you pick which one to use
-3. Install hook into Claude Code automatically
-
----
-
-## Supported models
-
-| Model | Cost | Requires |
-|-------|------|----------|
-| Ollama (llama3, mistral, etc.) | FREE | Ollama installed |
-| Claude Haiku 4.5 | ~₹0.06/prompt | ANTHROPIC_API_KEY |
-| Claude Sonnet 4.6 | ~₹0.20/prompt | ANTHROPIC_API_KEY |
-| GPT-4o Mini | ~₹0.02/prompt | OPENAI_API_KEY |
-| Gemini Flash | ~₹0.02/prompt | GEMINI_API_KEY |
-
-**Recommendation:** Start with Ollama (free). If you need better quality, switch to Haiku.
+It scans for whatever keys/models you have available, you pick one, and it wires itself into Claude Code automatically.
 
 ---
 
 ## Commands
 
+```
+claude-intent setup          detect models, install hook
+claude-intent models         list what's available
+claude-intent use <model>    switch model
+claude-intent pause          turn off temporarily
+claude-intent resume         turn back on
+claude-intent status         current config
+claude-intent debug on       print errors to terminal
+claude-intent uninstall      remove the hook
+```
+
+---
+
+## Models
+
+| Provider | Model | Cost | Key |
+|---|---|---|---|
+| Groq | Llama 3.3 70B | free | `GROQ_API_KEY` |
+| Groq | Llama 3.1 8B | free | `GROQ_API_KEY` |
+| Gemini | 2.5 Flash | free, 20/day | `GEMINI_API_KEY` |
+| Ollama | anything local | free, offline | none |
+| Anthropic | Claude Haiku | cheap | `ANTHROPIC_API_KEY` |
+| OpenAI | GPT-4o Mini | cheap | `OPENAI_API_KEY` |
+
+I'd start with Groq, switch to Ollama if you want everything fully offline.
+
+---
+
+## Getting better results
+
+Keep `CLAUDE.md` or `AGENTS.md` current in your repo, the hook reads it for architecture and folder layout before it tries to guess anything. That's really the main lever. Without it the hook is mostly just cleaning up your wording, with it the hook can actually point at the right file.
+
+---
+
+## Follow ups
+
+It can tell when you're reacting to the last thing vs starting something new.
+
+```
+Fresh:     "add a delete button to the batch list"
+Follow up: "still not showing"
+```
+
+When it spots a follow up, it pulls in the previous instruction so Claude has the full picture instead of just "still not showing" with no context. This is scoped to the current session, so it won't drag old context into a new unrelated task.
+
+---
+
+## Logs
+
 ```bash
-claude-intent setup          # First time setup
-claude-intent models         # See all available models
-claude-intent use llama3     # Switch to llama3
-claude-intent use haiku      # Switch to Claude Haiku
-claude-intent status         # Current config
-claude-intent debug on       # See what gets refined
-claude-intent debug off      # Silent mode (default)
-claude-intent uninstall      # Remove hook from Claude Code
+cat ~/.claude-intent/last-prompt.txt    # most recent
+cat ~/.claude-intent/intent.log         # everything
+tail -f ~/.claude-intent/intent.log     # live
+```
+```powershell
+Get-Content "$env:USERPROFILE\.claude-intent\intent.log" -Wait
 ```
 
 ---
 
-## How it works
-
-1. You type a prompt in Claude Code normally
-2. `UserPromptSubmit` hook fires (Claude Code's native hook system)
-3. claude-intent reads your raw prompt + project context (CLAUDE.md, git status, stack)
-4. Sends to your chosen model for refinement (1-3 seconds)
-5. Returns refined instruction as `additionalContext`
-6. Claude Code proceeds with the refined instruction
-
-**You never see the difference. Claude Code just works better.**
-
----
-
-## Debug mode
-
-Turn on to see what's happening:
+## Pausing
 
 ```bash
-claude-intent debug on
+claude-intent pause
+claude-intent resume
 ```
-
-You'll see in terminal:
-```
-[intent] "batch mein issue hai"
-      → "In BatchModal.vue, disable submit button when quantity === 0. Do not modify any other files."
-```
-
----
-
-## Project context
-
-claude-intent automatically reads:
-- `CLAUDE.md` — your project instructions
-- `git status` — what files you're working on
-- `git branch` — current branch
-- Stack detection — Vue, React, Laravel, etc.
-
-The more your `CLAUDE.md` says, the better the refinement.
 
 ---
 
@@ -134,3 +176,9 @@ The more your `CLAUDE.md` says, the better the refinement.
 claude-intent uninstall
 npm uninstall -g claude-intent
 ```
+
+---
+
+## License
+
+MIT
