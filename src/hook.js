@@ -6,19 +6,43 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 
-const LOG_FILE = path.join(os.homedir(), '.claude-intent', 'intent.log')
-const LAST_PROMPT_FILE = path.join(os.homedir(), '.claude-intent', 'last-prompt.txt')
-const LAST_REFINED_FILE = path.join(os.homedir(), '.claude-intent', 'last-refined.txt')
+const BASE_DIR = path.join(os.homedir(), '.claude-intent')
+const LOG_FILE = path.join(BASE_DIR, 'intent.log')
+const LAST_PROMPT_FILE = path.join(BASE_DIR, 'last-prompt.txt')
+const SESSIONS_DIR = path.join(BASE_DIR, 'sessions')
 
-function readLastRefined() {
+function ensureSessionsDir() {
+  if (!fs.existsSync(SESSIONS_DIR)) fs.mkdirSync(SESSIONS_DIR, { recursive: true })
+}
+
+function sessionFile(sessionId) {
+  // sanitize session id for filename safety
+  const safe = (sessionId || 'unknown').replace(/[^a-zA-Z0-9-]/g, '')
+  return path.join(SESSIONS_DIR, `${safe}.txt`)
+}
+
+function readLastRefined(sessionId) {
   try {
-    if (fs.existsSync(LAST_REFINED_FILE)) {
-      const content = fs.readFileSync(LAST_REFINED_FILE, 'utf8').trim()
+    ensureSessionsDir()
+    const f = sessionFile(sessionId)
+    if (fs.existsSync(f)) {
+      const stat = fs.statSync(f)
+      const ageMinutes = (Date.now() - stat.mtimeMs) / 60000
+      // Expire context after 60 minutes of inactivity in same session
+      if (ageMinutes > 60) return ''
+      const content = fs.readFileSync(f, 'utf8').trim()
       if (content.includes('Previous task:') || content.includes('Developer follow-up:')) return ''
       return content
     }
   } catch { }
   return ''
+}
+
+function saveSessionRefined(sessionId, refined) {
+  try {
+    ensureSessionsDir()
+    fs.writeFileSync(sessionFile(sessionId), refined)
+  } catch { }
 }
 
 function extractCleanRefined(raw) {
@@ -32,11 +56,12 @@ function extractCleanRefined(raw) {
   return lines[lines.length - 1] || raw
 }
 
-function savePrompt(raw, refined, mode = 'fresh') {
+function savePrompt(raw, refined, mode = 'fresh', sessionId = '') {
   const modeLabel = mode === 'followup' ? 'Follow-up' : 'Fresh'
   const lines = [
     '┌─ Intent Engine ──────────────────────────────────────',
     `│ Mode:        ${modeLabel}`,
+    `│ Session:     ${(sessionId || '').slice(0, 8)}`,
     `│ You typed:   ${raw}`,
     `│ Sending as:  ${refined}`,
     `│ Time:        ${new Date().toLocaleTimeString()}`,
@@ -46,52 +71,38 @@ function savePrompt(raw, refined, mode = 'fresh') {
 
   try { fs.appendFileSync(LOG_FILE, lines) } catch { }
   try { fs.writeFileSync(LAST_PROMPT_FILE, lines) } catch { }
-  try { fs.writeFileSync(LAST_REFINED_FILE, refined) } catch { }
 }
 
 function keywordSuggestsFollowUp(prompt) {
   const p = prompt.trim().toLowerCase()
-
-  // Very short — likely yes/no/ok response
   if (p.split(' ').length <= 3) return true
-
-  // Starts with reaction words
   const starters = [
     'no ', 'yes ', 'ok ', 'but ', 'still ', 'it ', 'its ',
     'no,', 'yes,', 'ok,', 'not ', 'now ', 'also ', 'and ',
     'nahi', 'haan', 'theek', 'lekin', 'abhi', 'phir',
     'i mean', 'i think', 'i said', 'what i',
-    'that ', 'this ', 'so ', 'same ',
+    'that ', 'this ', 'so ', 'same ', 'check ',
   ]
   if (starters.some(s => p.startsWith(s))) return true
-
-  // Contains continuation signals
   const signals = [
     'we did', 'we are', 'we were', 'that thing', 'same thing',
     'as before', 'like before', 'take ref', 'still not', 'still same',
     'not working', 'not showing', 'its still', "it's still",
     'still getting', 'already done', 'already added', 'already have',
-    'also add', 'also check', 'also need', 'as well',
+    'also add', 'also check', 'also need', 'as well', 'check again',
+    'check properly',
   ]
   if (signals.some(s => p.includes(s))) return true
-
   return false
 }
 
 async function detectMode(rawPrompt, lastRefined, config) {
-  // Step 1 — keyword check (fast, no API call)
   const keywordSaysFollowUp = keywordSuggestsFollowUp(rawPrompt)
-
-  // If keyword says fresh OR no previous context → fresh, no API call needed
   if (!keywordSaysFollowUp || !lastRefined) return 'fresh'
-
-  // Step 2 — keyword says follow-up AND we have previous context
-  // Ask model to confirm — avoids false positives like "still water add valve"
   try {
     const confirmed = await classifyPrompt(rawPrompt, lastRefined, config)
-    return confirmed // 'followup' or 'fresh'
+    return confirmed
   } catch {
-    // If classify call fails → fall back to keyword result
     return keywordSaysFollowUp ? 'followup' : 'fresh'
   }
 }
@@ -107,6 +118,7 @@ async function main() {
 
   const rawPrompt = hookData.prompt || ''
   const cwd = hookData.cwd || process.cwd()
+  const sessionId = hookData.session_id || ''
 
   if (rawPrompt.startsWith('/')) process.exit(0)
   if (rawPrompt.length < 8) process.exit(0)
@@ -115,10 +127,10 @@ async function main() {
   if (config.paused) process.exit(0)
   if (!config.provider || !config.model) process.exit(0)
 
-  const lastRefined = readLastRefined()
+  // Context scoped to THIS session only — prevents bleed from other sessions/tasks
+  const lastRefined = readLastRefined(sessionId)
 
   try {
-    // Detect mode — keyword first, model confirms if ambiguous
     const mode = await detectMode(rawPrompt, lastRefined, config)
 
     const context = getProjectContext(cwd)
@@ -129,7 +141,8 @@ async function main() {
     const cleanRefined = extractCleanRefined(rawRefined)
     if (!cleanRefined || cleanRefined.trim() === rawPrompt.trim()) process.exit(0)
 
-    savePrompt(rawPrompt, cleanRefined, mode)
+    savePrompt(rawPrompt, cleanRefined, mode, sessionId)
+    saveSessionRefined(sessionId, cleanRefined)
 
     process.stdout.write(JSON.stringify({
       hookSpecificOutput: {
